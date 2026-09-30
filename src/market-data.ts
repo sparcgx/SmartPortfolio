@@ -50,7 +50,14 @@ export async function fetchMarketSnapshot(
     ).values(),
   );
 
-  const response = await fetch("/api/market-data", {
+  const endpoint = typeof window !== "undefined" && window.location.hostname === "sparcgx.github.io"
+    ? "https://smartportfolio.sparcgx2420.chatgpt.site/api/market-data"
+    : "/api/market-data";
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    throw new Error("裝置離線，請恢復網路後重試");
+  }
+  const response = await fetch(endpoint, {
+    credentials: "omit",
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ instruments: uniqueInstruments }),
@@ -62,7 +69,10 @@ export async function fetchMarketSnapshot(
   }
 
   const value: unknown = await response.json();
-  if (!value || typeof value !== "object") {
+  if (!value || typeof value !== "object" ||
+      !Array.isArray((value as MarketSnapshot).quotes) ||
+      !Array.isArray((value as MarketSnapshot).errors) ||
+      typeof (value as MarketSnapshot).fetchedAt !== "string") {
     throw new Error("行情服務回傳格式不正確");
   }
   return value as MarketSnapshot;

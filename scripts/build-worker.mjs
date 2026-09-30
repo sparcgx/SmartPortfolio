@@ -288,6 +288,65 @@ async function handleMarketData(request) {
   });
 }
 
+// Bounded isolate-local cache and throttle; this is not a global quota.
+const marketCache = new Map();
+const marketClients = new Map();
+async function handleMarketGateway(request) {
+  const origin = request.headers.get("origin");
+  const ownOrigin = new URL(request.url).origin;
+  const allowed = !origin || origin === ownOrigin || origin === "https://sparcgx.github.io";
+  if (!allowed) return jsonResponse({ error: "Origin not allowed" }, 403);
+  const cors = origin ? {
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "access-control-max-age": "600",
+    "vary": "Origin",
+  } : {};
+  const wrap = (response) => {
+    const headers = new Headers(response.headers);
+    for (const [key, value] of Object.entries(cors)) headers.set(key, value);
+    return new Response(response.body, { status: response.status, headers });
+  };
+  if (request.method === "OPTIONS") {
+    if (request.headers.get("access-control-request-method") !== "POST" ||
+        (request.headers.get("access-control-request-headers") || "").split(",").some(h => h.trim() && h.trim().toLowerCase() !== "content-type")) {
+      return wrap(jsonResponse({ error: "Preflight not allowed" }, 403));
+    }
+    return wrap(new Response(null, { status: 204 }));
+  }
+  if (request.method !== "POST") return wrap(jsonResponse({ error: "Method not allowed" }, 405));
+  const body = await request.text();
+  if (new TextEncoder().encode(body).length > 20_000) return wrap(jsonResponse({ error: "Request too large" }, 413));
+  let input;
+  try { input = JSON.parse(body); } catch { return wrap(jsonResponse({ error: "Invalid JSON" }, 400)); }
+  if (!input || !Array.isArray(input.instruments) || input.instruments.some(i => !i || typeof i.symbol !== "string" || !["台股", "美股"].includes(i.category))) {
+    return wrap(jsonResponse({ error: "Invalid instruments" }, 400));
+  }
+  const now = Date.now();
+  const client = request.headers.get("cf-connecting-ip");
+  if (client) {
+    let entry = marketClients.get(client);
+    if (!entry || now - entry.start >= 60_000) entry = { start: now, count: 0 };
+    if (++entry.count > 15) return wrap(jsonResponse({ error: "Too many requests" }, 429));
+    if (marketClients.size >= 512 && !marketClients.has(client)) marketClients.delete(marketClients.keys().next().value);
+    marketClients.set(client, entry);
+  }
+  const key = JSON.stringify(input.instruments.slice(0, 80).map(i => [i.category, i.symbol.trim().toUpperCase()]).sort());
+  const cached = marketCache.get(key);
+  if (cached && now - cached.at < 60_000) return wrap(jsonResponse(cached.data));
+  const response = await handleMarketData(new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body }));
+  if (response.ok) {
+    const data = await response.clone().json();
+    // Never cache failures or partial snapshots; let recovery retry upstream.
+    if (data.fx && data.errors.length === 0) {
+      if (marketCache.size >= 128) marketCache.delete(marketCache.keys().next().value);
+      marketCache.set(key, { at: now, data });
+    }
+  }
+  return wrap(response);
+}
+
 function serveStatic(pathname, method) {
   const file = STATIC_FILES[pathname];
   if (!file) return null;
@@ -317,7 +376,7 @@ export default {
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/api/market-data") {
-      return handleMarketData(request);
+      return handleMarketGateway(request);
     }
     if (url.pathname.startsWith("/api/")) {
       return jsonResponse({ error: "Not found" }, 404);

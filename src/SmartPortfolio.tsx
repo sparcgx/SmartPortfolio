@@ -160,7 +160,7 @@ declare global {
   }
 }
 
-const APP_VERSION = "1.8.0";
+const APP_VERSION = "1.8.1";
 const HISTORY_RECOVERY_KEY = "smartportfolio:recovery:before-history-change:v1";
 const STORAGE_KEY = "smartportfolio:v1";
 const BACKUP_MARKER_KEY = "smartportfolio:backup-marker:v1";
@@ -303,6 +303,7 @@ function formatBackupDate(value: string | null) {
 export default function SmartPortfolio() {
   const isStandaloneFile =
     typeof window !== "undefined" && window.location.protocol === "file:";
+  const isGithubPages = typeof window !== "undefined" && window.location.hostname === "sparcgx.github.io";
   const [currentTheme, setCurrentTheme] = useState<ThemeId>("dark");
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>("TWD");
   const [marketStyle, setMarketStyle] = useState<MarketStyle>("TW");
@@ -489,6 +490,7 @@ export default function SmartPortfolio() {
     if (
       import.meta.env.PROD &&
       window.location.protocol === "https:" &&
+      window.location.hostname !== "sparcgx.github.io" &&
       "serviceWorker" in navigator
     ) {
       navigator.serviceWorker.addEventListener(
@@ -1870,7 +1872,7 @@ export default function SmartPortfolio() {
                   <span className="sm:hidden">備份</span>
                 </Button>
 
-                {!isStandaloneFile && !isPwaStandalone && (
+                {!isStandaloneFile && !isGithubPages && !isPwaStandalone && (
                   <Button
                     type="button"
                     variant="outline"
