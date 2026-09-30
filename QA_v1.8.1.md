@@ -1,6 +1,6 @@
 # v1.8.1｜GitHub 行情連動
 
-狀態：開發完成；自動回歸 44 PASS / 0 FAIL；正式部署與實際行情驗收待完成。
+狀態：自動回歸 44 PASS / 0 FAIL；後端已發布；線上 HTTP API 台股、美股、匯率與 CORS 通過；gh-pages 已推送，手機操作待驗收。
 
 ## 實作
 - GitHub origin 使用既有正式網站的行情 API；請求不帶登入 cookie，僅傳市場與代號。
@@ -30,4 +30,4 @@
 ## 發布順序
 先推送／發布行情後端，確認真實 OPTIONS 與 POST，再更新 gh-pages index.html；正式 v1.8.0 保留直到後端發布成功。
 
-目前阻礙：工作環境 network proxy 無法連接，Sites source workflow 無法同步；未發布 v1.8.1。
+2026-09-30：經核准的發布執行環境完成後端部署。線上 OPTIONS 204；POST 200，包含 00919、AAPL 與 USD/TWD，errors=[]。此為 HTTP 協定實測，非手機瀏覽器端驗收。GitHub main／gh-pages 已更新，stable/v1.8.0 保留。
