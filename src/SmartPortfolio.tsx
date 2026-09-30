@@ -41,6 +41,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
+import DividendIncome from "./DividendIncome";
 import { investmentPerformance } from "./performance";
 import { RESTORE_RECOVERY_KEY, savePortfolio, restoreWithSnapshot } from "./storage-safety";
 
@@ -160,7 +161,7 @@ declare global {
   }
 }
 
-const APP_VERSION = "1.8.1";
+const APP_VERSION = "1.9.0";
 const HISTORY_RECOVERY_KEY = "smartportfolio:recovery:before-history-change:v1";
 const STORAGE_KEY = "smartportfolio:v1";
 const BACKUP_MARKER_KEY = "smartportfolio:backup-marker:v1";
@@ -194,7 +195,7 @@ const NAV_TABS: Array<{
   { id: "dashboard", label: "資產總覽", compactLabel: "總覽", icon: PieChart },
   { id: "holdings", label: "持股與基金明細", compactLabel: "持股", icon: Layers3 },
   { id: "transactions", label: "交易紀錄", compactLabel: "交易", icon: CalendarDays },
-  { id: "dividends", label: "股息與產業分析", compactLabel: "分析", icon: BarChart3 },
+  { id: "dividends", label: "實收股息與分析", compactLabel: "股息", icon: BarChart3 },
   { id: "dca", label: "定期定額試算", compactLabel: "試算", icon: Calculator },
 ];
 
@@ -1411,7 +1412,7 @@ export default function SmartPortfolio() {
         return;
       }
       const existing = holdings.find(
-        (holding) => holding.symbol.toLowerCase() === symbol.toLowerCase(),
+        (holding) => holding.symbol.toLowerCase() === symbol.toLowerCase() && holding.category === formCategory,
       );
       const transaction: Transaction = {
         id: createId("tx"),
@@ -2825,7 +2826,9 @@ export default function SmartPortfolio() {
             aria-labelledby="tab-dividends"
             className="space-y-6"
           >
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <DividendIncome holdings={holdings} transactions={transactions} today={localDateString()} onEdit={row => setHistoryEdit({original:row,draft:{...row},deleting:false})} onAdd={() => { resetForm(); setFormType("DIVIDEND"); setIsAddModalOpen(true); }} />
+            <details className="rounded-2xl border border-border p-4"><summary className="cursor-pointer py-2 font-semibold">預估股息日曆與殖利率排行</summary>
+            <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
               <Panel className="p-5 sm:p-6 lg:col-span-2">
                 <h2 className="flex items-center gap-2 text-base font-bold">
                   <BarChart3 className="size-5 text-primary" />
@@ -2907,6 +2910,7 @@ export default function SmartPortfolio() {
               </Panel>
             </div>
 
+            </details>
             <Panel className="p-5 sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="flex items-center gap-2 text-base font-bold">
@@ -3618,7 +3622,7 @@ export default function SmartPortfolio() {
               </div>
             ) : hasTransactionTarget && formType === "DIVIDEND" ? (
               <label className="block space-y-1.5 text-sm font-semibold">
-                <span>實收股息（{formCategory === "美股" ? "USD" : "TWD"}）</span>
+                <span>股息毛額／扣費稅前（{formCategory === "美股" ? "USD" : "TWD"}）</span>
                 <Input
                   type="number"
                   min="0"

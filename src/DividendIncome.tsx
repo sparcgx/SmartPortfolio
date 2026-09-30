@@ -1,0 +1,39 @@
+import { useMemo, useState } from 'react';
+import type { Holding, Transaction } from './types';
+import { dividendIncome, dividendValue, type IncomeCurrency } from './dividend-income';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+
+export default function DividendIncome({holdings,transactions,today,onEdit,onAdd}:{holdings:Holding[];transactions:Transaction[];today:string;onEdit:(row:Transaction)=>void;onAdd:()=>void}) {
+  const currentYear=Number(today.slice(0,4));
+  const [year,setYear]=useState(currentYear), [month,setMonth]=useState(0), [currency,setCurrency]=useState<IncomeCurrency>('TWD');
+  const [detail,setDetail]=useState<{month:number;key?:string;title:string}|null>(null);
+  const years=[...new Set([currentYear,currentYear-1,year,...transactions.filter(r=>r.type==='DIVIDEND').map(r=>Number(r.date.slice(0,4))).filter(y=>Number.isInteger(y)&&y>0&&y<=currentYear)])].sort((a,b)=>b-a);
+  const report=useMemo(()=>dividendIncome(holdings,transactions,year,month,currency,today),[holdings,transactions,year,month,currency,today]);
+  const source=useMemo(()=>detail?dividendIncome(holdings,transactions,year,detail.month,currency,today).rows.filter(r=>!detail.key||`${r.category}:${r.symbol.trim().toUpperCase()}`===detail.key):[],[detail,holdings,transactions,year,currency,today]);
+  const money=(value:number)=>`${currency==='TWD'?'NT$':'US$'} ${value.toLocaleString('zh-TW',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const showMonth=(m:number)=>setDetail({month:m,title:m?`${year} 年 ${m} 月來源交易`:`${year} 年來源交易`});
+  const labelStyle='flex items-center gap-2 text-sm';
+  const selectStyle='rounded-lg border border-border bg-background px-3 py-2 text-foreground';
+  return <div className="space-y-5">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-bold">實收股息</h2><p className="mt-1 text-sm text-muted-foreground">依入帳日期與已登記交易統計；實收淨額＝股息毛額－手續費－稅額。</p></div><Button onClick={onAdd}>登記股息</Button></div>
+    <div className="flex flex-wrap gap-3">
+      <label className={labelStyle}>年度<select className={selectStyle} value={year} onChange={e=>{setYear(Number(e.target.value));setDetail(null);}}>{years.map(y=><option key={y} value={y}>{y} 年</option>)}</select></label>
+      <label className={labelStyle}>期間<select className={selectStyle} value={month} onChange={e=>{setMonth(Number(e.target.value));setDetail(null);}}><option value={0}>{year===currentYear?'本年截至今日':'全年'}</option>{Array.from({length:12},(_,i)=><option key={i} value={i+1}>{i+1} 月</option>)}</select></label>
+      <label className={labelStyle}>原幣<select className={selectStyle} value={currency} onChange={e=>{setCurrency(e.target.value as IncomeCurrency);setDetail(null);}}><option value="TWD">台幣</option><option value="USD">美元</option></select></label>
+    </div>
+    <div className="grid gap-3 sm:grid-cols-3">
+      <button className="rounded-2xl bg-card p-5 text-left ring-1 ring-border hover:bg-muted/50" onClick={()=>showMonth(month)}><span className="text-sm text-muted-foreground">實收淨額 · {report.total.count} 筆</span><strong className="mt-2 block text-2xl tabular-nums">{money(report.total.net)}</strong><span className="mt-2 block text-sm text-primary">查看來源交易</span></button>
+      <div className="rounded-2xl bg-card p-5 ring-1 ring-border"><span className="text-sm text-muted-foreground">登記毛額／費稅</span><strong className="mt-2 block text-xl tabular-nums">{money(report.total.gross)}</strong><p className="mt-2 text-sm text-muted-foreground">費稅 {money(report.total.costs)} · {report.total.unverified} 筆待核對</p></div>
+      <div className="rounded-2xl bg-card p-5 ring-1 ring-border"><span className="text-sm text-muted-foreground">去年同期比較</span><strong className="mt-2 block text-xl tabular-nums">{report.comparison?`${report.comparison.difference>=0?'+':''}${money(report.comparison.difference)}`:'資料不足'}</strong><p className="mt-2 text-sm text-muted-foreground">{report.comparison?`去年 ${money(report.previous.net)}${report.comparison.percent!==null?` · ${report.comparison.percent.toFixed(1)}%`:' · 去年淨額非正數，不算成長率'}`:'本期或去年同期沒有股息紀錄'}</p></div>
+    </div>
+    <p className="text-sm text-muted-foreground">本年比較截至相同月日；歷年以相同月份或全年比較。台幣與美元分開計算，不以目前匯率換算歷史收入。待核對紀錄仍納入金額，請依對帳單確認。</p>
+    {report.invalidCount>0&&<p role="alert" className="text-sm text-destructive">有 {report.invalidCount} 筆股息欄位異常，未納入統計；請至交易頁檢查。</p>}
+    <div className="rounded-2xl bg-card p-5 ring-1 ring-border"><h3 className="font-bold">全年月份明細</h3><p className="my-2 text-sm text-muted-foreground">預估為目前持股市值 × 殖利率，按設定月份分攤的稅前參考值；非公告應收。歷年不回填預估；未登記不代表未配息。</p>
+      <Table><TableHeader><TableRow>{['月份','目前持股預估','登記毛額','實收淨額','毛額－預估','去年同期淨額'].map(t=><TableHead key={t} className="whitespace-nowrap">{t}</TableHead>)}</TableRow></TableHeader><TableBody>{report.monthly.map(r=><TableRow key={r.month} className={month===r.month?'bg-primary/5':''}><TableCell><button className="py-2 text-primary underline underline-offset-4" onClick={()=>{setMonth(r.month);showMonth(r.month);}}>{r.month} 月</button></TableCell><TableCell className="whitespace-nowrap tabular-nums">{r.forecast===null?'—':money(r.forecast)}</TableCell><TableCell className="whitespace-nowrap tabular-nums">{r.count?money(r.gross):'未登記'}</TableCell><TableCell className="whitespace-nowrap tabular-nums"><button className="py-2 text-primary underline underline-offset-4" onClick={()=>showMonth(r.month)}>{r.count?money(r.net):'查看紀錄'}</button></TableCell><TableCell className="whitespace-nowrap tabular-nums">{r.forecast!==null&&r.count?money(r.gross-r.forecast):'—'}</TableCell><TableCell className="whitespace-nowrap tabular-nums">{r.previous.count?money(r.previous.net):'無紀錄'}</TableCell></TableRow>)}</TableBody></Table>
+    </div>
+    <div className="rounded-2xl bg-card p-5 ring-1 ring-border"><h3 className="mb-3 font-bold">{month?`${month} 月`:'本期'}實收股息排行</h3>{report.ranking.length===0?<p className="py-5 text-sm text-muted-foreground">此期間／幣別尚無股息紀錄，可先登記一筆或切換期間。</p>:<div className="space-y-2">{report.ranking.map((r,i)=><button key={r.key} onClick={()=>setDetail({month,key:r.key,title:`${r.name} · 來源交易`})} className="flex w-full items-center justify-between gap-3 rounded-xl bg-muted/40 px-4 py-3 text-left hover:bg-muted"><span className="min-w-0"><span className="block truncate font-medium">{i+1}. {r.name}</span><span className="text-sm text-muted-foreground">{r.category} · {r.symbol} · {r.count} 筆</span></span><span className="shrink-0 text-right tabular-nums"><strong>{money(r.net)}</strong><span className="block text-sm text-muted-foreground">{report.total.net>0&&r.net>=0?`占 ${((r.net/report.total.net)*100).toFixed(1)}%`:'查看交易'}</span></span></button>)}</div>}</div>
+    <Dialog open={Boolean(detail)} onOpenChange={open=>{if(!open)setDetail(null);}}><DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>{detail?.title}</DialogTitle><DialogDescription>金額以 {currency} 顯示。編輯會沿用交易影響預覽與操作前快照。</DialogDescription></DialogHeader>{source.length===0?<p className="py-4 text-muted-foreground">沒有符合條件的股息交易。</p>:source.map(r=><div key={r.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-border py-3"><div><p className="font-semibold">{r.name} · {r.symbol}</p><p className="text-sm text-muted-foreground">{r.date} · {r.costsVerified?'已核對':'待核對'}</p><p className="text-sm">毛額 {money(dividendValue(r).gross)} · 費稅 {money(dividendValue(r).costs)}</p><p className="font-semibold">淨額 {money(dividendValue(r).net)}</p></div><Button variant="outline" onClick={()=>{setDetail(null);onEdit(r);}}>編輯交易</Button></div>)}</DialogContent></Dialog>
+  </div>;
+}
