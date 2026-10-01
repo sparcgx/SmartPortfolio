@@ -4,6 +4,16 @@ export type MarketStyle = "TW" | "US";
 export type Category = "台股" | "美股" | "公募基金";
 export type TransactionType = "BUY" | "SELL" | "DIVIDEND";
 export type QuoteMode = "AUTO" | "MANUAL";
+export interface OfficialYield {
+  rate: number | null;
+  status: 'available' | 'unavailable' | 'error';
+  source: string;
+  sourceUrl: string;
+  basis: string;
+  asOf: string | null;
+  checkedAt: string;
+  message?: string;
+}
 export type TabId =
   | "dashboard"
   | "holdings"
@@ -21,6 +31,7 @@ export interface Holding {
   currentPrice: number;
   sector: string;
   divRate: number;
+  officialYield?: OfficialYield;
   estDivMonth: string;
   todayChange: number;
   quoteMode: QuoteMode;

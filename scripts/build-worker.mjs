@@ -58,6 +58,8 @@ for (const filename of await readdir(assetsRoot)) {
   };
 }
 
+const yieldRuntime = (await readFile(path.join(projectRoot, "server", "dividend-yields.mjs"), "utf8")).replace(/^export /gm, "");
+
 const runtime = String.raw`
 const API_JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -292,6 +294,7 @@ async function handleMarketData(request) {
 const marketCache = new Map();
 const marketClients = new Map();
 async function handleMarketGateway(request) {
+  const isYield = new URL(request.url).pathname === "/api/dividend-yields";
   const origin = request.headers.get("origin");
   const ownOrigin = new URL(request.url).origin;
   const allowed = !origin || origin === ownOrigin || origin === "https://sparcgx.github.io";
@@ -320,9 +323,10 @@ async function handleMarketGateway(request) {
   if (new TextEncoder().encode(body).length > 20_000) return wrap(jsonResponse({ error: "Request too large" }, 413));
   let input;
   try { input = JSON.parse(body); } catch { return wrap(jsonResponse({ error: "Invalid JSON" }, 400)); }
-  if (!input || !Array.isArray(input.instruments) || input.instruments.some(i => !i || typeof i.symbol !== "string" || !["台股", "美股"].includes(i.category))) {
+  if (!input || !Array.isArray(input.instruments) || input.instruments.some(i => !i || typeof i.symbol !== "string" || !(isYield ? ["台股", "美股", "公募基金"] : ["台股", "美股"]).includes(i.category))) {
     return wrap(jsonResponse({ error: "Invalid instruments" }, 400));
   }
+  if (isYield && (input.instruments.length > 12 || input.instruments.some(i => !/^[A-Za-z0-9.^_-]{1,40}$/.test(i.symbol.trim())))) return wrap(jsonResponse({error:"Invalid yield instruments"},400));
   const now = Date.now();
   const client = request.headers.get("cf-connecting-ip");
   if (client) {
@@ -332,14 +336,14 @@ async function handleMarketGateway(request) {
     if (marketClients.size >= 512 && !marketClients.has(client)) marketClients.delete(marketClients.keys().next().value);
     marketClients.set(client, entry);
   }
-  const key = JSON.stringify(input.instruments.slice(0, 80).map(i => [i.category, i.symbol.trim().toUpperCase()]).sort());
+  const key = (isYield ? "yields:" : "quotes:") + JSON.stringify(input.instruments.slice(0, 80).map(i => [i.category, i.symbol.trim().toUpperCase()]).sort());
   const cached = marketCache.get(key);
-  if (cached && now - cached.at < 60_000) return wrap(jsonResponse(cached.data));
-  const response = await handleMarketData(new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body }));
+  if (cached && now - cached.at < (isYield ? 3_600_000 : 60_000)) return wrap(jsonResponse(cached.data));
+  const response = isYield ? jsonResponse(await fetchOfficialYields(input.instruments, new Date().toISOString(), fetchJson)) : await handleMarketData(new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body }));
   if (response.ok) {
     const data = await response.clone().json();
     // Never cache failures or partial snapshots; let recovery retry upstream.
-    if (data.fx && data.errors.length === 0) {
+    if ((isYield || data.fx) && data.errors.length === 0) {
       if (marketCache.size >= 128) marketCache.delete(marketCache.keys().next().value);
       marketCache.set(key, { at: now, data });
     }
@@ -375,7 +379,7 @@ function serveStatic(pathname, method) {
 export default {
   async fetch(request) {
     const url = new URL(request.url);
-    if (url.pathname === "/api/market-data") {
+    if (url.pathname === "/api/market-data" || url.pathname === "/api/dividend-yields") {
       return handleMarketGateway(request);
     }
     if (url.pathname.startsWith("/api/")) {
@@ -390,7 +394,7 @@ export default {
 };
 `;
 
-const workerSource = `const STATIC_FILES = ${JSON.stringify(staticFiles)};\n${runtime}`;
+const workerSource = `const STATIC_FILES = ${JSON.stringify(staticFiles)};\n${yieldRuntime}\n${runtime}`;
 await rm(path.join(distRoot, ".openai", "drizzle"), {
   recursive: true,
   force: true,

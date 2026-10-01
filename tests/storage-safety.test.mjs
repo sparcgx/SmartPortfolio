@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
-import { savePortfolio, restoreWithSnapshot, RESTORE_RECOVERY_KEY } from '../src/storage-safety.ts';
+import { savePortfolio, restoreWithSnapshot, RESTORE_RECOVERY_KEY, verifyTransactionCosts } from '../src/storage-safety.ts';
 const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
+  if (specifier === './official-yields' && context.parentURL?.endsWith('/src/backup.ts')) return nextResolve('./official-yields.ts', context);
   if (specifier === './data' && context.parentURL?.endsWith('/src/backup.ts')) return nextResolve('./data.ts', context);
   return nextResolve(specifier, context);
 } });
@@ -48,4 +49,37 @@ test('backup round trip preserves holdings, fees, dividends, metadata and settin
 test('legacy backup receives defaults and malformed input is rejected', () => {
   assert.equal(parsePortfolioBackup({schemaVersion:1,holdings:[],transactions:[]}).data.schemaVersion, 3);
   assert.throws(() => parsePortfolioBackup({holdings:[{}],transactions:[]}));
+});
+
+const verifyCurrent = {...current, transactions:[{id:'verify-me',category:'台股',symbol:'0050',name:'測試',type:'BUY',date:'2026-09-13',shares:50,price:100.75,fee:7,tax:5,costsVerified:false}]};
+test('direct fee verification changes only its flag and snapshots the exact previous data', () => {
+  const s=memory(); const before=structuredClone(verifyCurrent);
+  const result=verifyTransactionCosts(s,'main','history',verifyCurrent,'verify-me',true,'1.11.0',true);
+  assert.deepEqual(result,{...verifyCurrent,transactions:[{...verifyCurrent.transactions[0],costsVerified:true}]});
+  assert.deepEqual(verifyCurrent,before); assert.equal(result.holdings,verifyCurrent.holdings);
+  assert.deepEqual(JSON.parse(s.getItem('history')).data,before);
+  const reverted=verifyTransactionCosts(s,'main','history',result,'verify-me',false,'1.11.0',true);
+  assert.equal(reverted.transactions[0].costsVerified,false);
+});
+test('direct verification never applies when snapshot or main persistence fails', () => {
+  for(const key of ['history','main']) {
+    const s=memory(key);const old=s.getItem('main');
+    assert.throws(()=>verifyTransactionCosts(s,'main','history',verifyCurrent,'verify-me',true,'1.11.0',true));
+    assert.equal(s.getItem('main'),old);assert.equal(verifyCurrent.transactions[0].costsVerified,false);
+  }
+});
+test('verification rejects unloaded, missing, duplicate and invalid-fee records', () => {
+  const s=memory();
+  assert.throws(()=>verifyTransactionCosts(s,'main','history',verifyCurrent,'verify-me',true,'1.11.0',false));
+  assert.throws(()=>verifyTransactionCosts(s,'main','history',verifyCurrent,'missing',true,'1.11.0',true));
+  for(const transactions of [[...verifyCurrent.transactions,...verifyCurrent.transactions],[{...verifyCurrent.transactions[0],fee:NaN}]]) {
+    assert.throws(()=>verifyTransactionCosts(s,'main','history',{...verifyCurrent,transactions},'verify-me',true,'1.11.0',true));
+  }
+  assert.equal(s.getItem('history'),null);
+});
+test('official yield metadata survives backup without changing the manual forecast rate', () => {
+  const officialYield={rate:3.5,status:'available',source:'臺灣證券交易所 OpenAPI',sourceUrl:'https://www.twse.com.tw/zh/trading/historical/bwibbu-day.html',asOf:'2026-10-01',checkedAt:'2026-10-02T00:00:00Z',basis:'官方股利口徑'};
+  const data=parsePortfolioBackup({...current,holdings:[{id:'h',category:'台股',symbol:'2330',name:'測試',shares:2,avgPrice:100,currentPrice:120,divRate:5,officialYield}]}).data;
+  const restored=parsePortfolioBackup(createPortfolioBackup(data,'1.11.0')).data;
+  assert.deepEqual(restored.holdings[0].officialYield,officialYield);assert.equal(restored.holdings[0].divRate,5);
 });

@@ -11,7 +11,7 @@ const { default: Page } = await server.ssrLoadModule('/src/InstrumentTransaction
 const instrument = { category: '美股', symbol: 'AAPL' };
 const tx = { ...instrument, id: '1', name: 'Apple', type: 'BUY', date: '2026-09-01', shares: 10, price: 100, fee: 5, tax: 0 };
 const render = (transactions, storageReady = true) => renderToStaticMarkup(createElement(Page, {
-  instrument, holdings: [], transactions, storageReady, onBack() {}, onEdit() {},
+  instrument, holdings: [], transactions, storageReady, onBack() {}, onEdit() {}, onVerify() {},
 }));
 
 test('detail UI excludes other symbols and markets, shows all three types and native values', () => {
@@ -26,6 +26,6 @@ test('detail UI excludes other symbols and markets, shows all three types and na
 test('detail empty state and storage-read failure remain safe and readable', () => {
   assert.match(render([]), /此標的尚無交易紀錄/);
   const html = render([tx], false);
-  assert.equal((html.match(/disabled=""/g) || []).length, 2);
+  assert.equal((html.match(/disabled=""/g) || []).length, 3);
   assert.match(html, /aria-labelledby="instrument-title"/);
 });

@@ -41,7 +41,12 @@ import {
   WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
+import OfficialYieldPanel from "./OfficialYieldPanel";
+import { fetchDividendYields, mergeOfficialYield } from "./official-yields";
 import DividendIncome from "./DividendIncome";
+import CostVerificationButton from "./CostVerificationButton";
+import { verifyTransactionCosts } from "./storage-safety";
+import { transactionCash } from "./instrument-history";
 import InstrumentLink from "./InstrumentLink";
 import InstrumentTransactions from "./InstrumentTransactions";
 import { useInstrumentPage } from "./use-instrument-page";
@@ -164,7 +169,7 @@ declare global {
   }
 }
 
-const APP_VERSION = "1.10.1";
+const APP_VERSION = "1.11.0";
 const HISTORY_RECOVERY_KEY = "smartportfolio:recovery:before-history-change:v1";
 const STORAGE_KEY = "smartportfolio:v1";
 const BACKUP_MARKER_KEY = "smartportfolio:backup-marker:v1";
@@ -318,6 +323,9 @@ export default function SmartPortfolio() {
   const [usdRate, setUsdRate] = useState(FALLBACK_USD_RATE);
   const [usdRateUpdatedAt, setUsdRateUpdatedAt] = useState<string | null>(null);
   const [lastMarketSyncAt, setLastMarketSyncAt] = useState<string | null>(null);
+  const [yieldRefreshing, setYieldRefreshing] = useState(false);
+  const [yieldError, setYieldError] = useState<string | null>(null);
+  const yieldRequest = useRef<AbortController | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [quoteConsent, setQuoteConsent] = useState(false);
   const [isMarketConsentOpen, setIsMarketConsentOpen] = useState(false);
@@ -756,13 +764,50 @@ export default function SmartPortfolio() {
     return () => window.clearInterval(interval);
   }, [autoRefresh, isStandaloneFile, refreshMarketData, storageReady]);
 
-  const gainLossText = (value: number) => {
-    if (value === 0) return "text-muted-foreground";
-    if (marketStyle === "TW") {
-      return value > 0 ? "font-bold text-rose-500" : "font-bold text-emerald-500";
+  const refreshOfficialYields = useCallback(async (silent = false) => {
+    if (!quoteConsentRef.current || !storageReady || isStandaloneFile || yieldRequest.current) return;
+    const controller = new AbortController(); yieldRequest.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 25_000);
+    setYieldRefreshing(true); setYieldError(null);
+    try {
+      const result = await fetchDividendYields(holdingsRef.current, controller.signal);
+      if (controller.signal.aborted || !quoteConsentRef.current) return;
+      const byKey = new Map(result.map(row => [marketQuoteKey(row.category,row.symbol),row]));
+      setHoldings(previous => previous.map(h => {
+        const incoming = byKey.get(marketQuoteKey(h.category,h.symbol));
+        if (!incoming) return h;
+        const {category: _category, symbol: _symbol, ...info} = incoming;
+        return {...h,officialYield:mergeOfficialYield(h.officialYield,info)};
+      }));
+      const failed = result.filter(row => row.status === 'error').length;
+      if (failed) setYieldError(`${failed} 檔來源暫時無法取得，已保留上次成功值`);
+      if (!silent) toast.success(`已查詢 ${result.length} 檔；${result.filter(row => row.status === 'available').length} 檔有官方殖利率，其餘請查看原因`);
+    } catch (error) {
+      if (quoteConsentRef.current && yieldRequest.current === controller) {
+        const message = error instanceof Error && error.name !== 'AbortError' ? error.message : '查詢逾時，已保留上次成功值';
+        setYieldError(message); if (!silent) toast.error(message);
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      if (yieldRequest.current === controller) { yieldRequest.current = null; setYieldRefreshing(false); }
     }
-    return value > 0 ? "font-bold text-emerald-500" : "font-bold text-rose-500";
-  };
+  }, [storageReady,isStandaloneFile]);
+  const yieldInstrumentKey = holdings.map(h => marketQuoteKey(h.category,h.symbol)).sort().join('|');
+  useEffect(() => {
+    if (!storageReady || !quoteConsent || isStandaloneFile || !yieldInstrumentKey) return;
+    if (autoRefresh) void refreshOfficialYields(true);
+    const interval = autoRefresh ? window.setInterval(() => { void refreshOfficialYields(true); }, 3_600_000) : undefined;
+    return () => {
+      window.clearInterval(interval);
+      yieldRequest.current?.abort(); yieldRequest.current = null; setYieldRefreshing(false);
+    };
+  }, [storageReady,quoteConsent,autoRefresh,isStandaloneFile,yieldInstrumentKey,refreshOfficialYields]);
+  const handleYieldRefresh = () => { if (!quoteConsent) setIsMarketConsentOpen(true); else void refreshOfficialYields(); };
+
+  const gainLossText = (value: number | null) => value === null || value === 0 || !Number.isFinite(value)
+    ? "value-neutral" : value > 0 ? "font-semibold value-positive" : "font-semibold value-negative";
+  const cashText = (value: number | null) => value === null || value === 0 || !Number.isFinite(value)
+    ? "value-neutral" : value > 0 ? "cash-income" : "cash-expense";
 
   const gainLossBadge = (value: number) => {
     if (value === 0) return "border-border bg-muted text-muted-foreground";
@@ -1384,6 +1429,7 @@ export default function SmartPortfolio() {
                 currentPrice: price,
                 sector: formSector.trim() || "未分類",
                 divRate,
+                officialYield: holding.category === formCategory && holding.symbol.trim().toUpperCase() === symbol ? holding.officialYield : undefined,
                 estDivMonth: dividendMonths.join(","),
                 quoteMode:
                   formCategory === "公募基金" ? "MANUAL" : formQuoteMode,
@@ -1575,6 +1621,17 @@ export default function SmartPortfolio() {
     toast.success("交易與持股已同步儲存；操作前快照可在備份中下載");
   };
 
+  const handleVerifyCosts = (row: Transaction, verified: boolean) => {
+    try {
+      const next = verifyTransactionCosts(localStorage, STORAGE_KEY, HISTORY_RECOVERY_KEY, storedPortfolio, row.id, verified, APP_VERSION, storageReady);
+      clearTransactionUndo();
+      setTransactions(next.transactions); setHasHistoryRecovery(true); setStorageError(null);
+      toast.success(verified ? "已標記費稅核對完成；再次點擊可改回待核對" : "已改回待核對");
+    } catch (error) {
+      toast.error(error instanceof Error && /欄位|識別|載入|不存在/.test(error.message) ? error.message : "無法儲存核對狀態，本次未套用；請檢查儲存空間或先匯出備份");
+    }
+  };
+
   const handleExportBackup = () => {
     try {
       const backup = createPortfolioBackup(storedPortfolio, APP_VERSION);
@@ -1718,6 +1775,7 @@ export default function SmartPortfolio() {
     setQuoteConsent(true);
     setIsMarketConsentOpen(false);
     void refreshMarketData(false);
+    void refreshOfficialYields();
   };
 
   const disableMarketConsent = () => {
@@ -1847,7 +1905,7 @@ export default function SmartPortfolio() {
   };
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-background text-foreground antialiased selection:bg-primary selection:text-primary-foreground">
+    <div data-market-style={marketStyle} className="portfolio-colors min-h-screen w-full overflow-x-hidden bg-background text-foreground antialiased selection:bg-primary selection:text-primary-foreground">
       <Toaster richColors position="top-right" closeButton />
       <div className="min-h-screen">
         <header className="sticky top-0 z-40 border-b border-border bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
@@ -2074,7 +2132,7 @@ export default function SmartPortfolio() {
         )}
 
         <main className="mx-auto w-full max-w-7xl space-y-6 px-3 pt-6 pb-24 sm:px-6 sm:pb-6 lg:px-8">
-          {instrument && <InstrumentTransactions instrument={instrument} holdings={holdings} transactions={transactions} storageReady={storageReady} onBack={backFromInstrument} onEdit={(row, deleting) => setHistoryEdit({original: row, draft: {...row}, deleting})} />}
+          {instrument && <InstrumentTransactions onVerify={handleVerifyCosts} instrument={instrument} holdings={holdings} transactions={transactions} storageReady={storageReady} onBack={backFromInstrument} onEdit={(row, deleting) => setHistoryEdit({original: row, draft: {...row}, deleting})} />}
           <div hidden={Boolean(instrument)} className="space-y-6">
           {activeTab === "dashboard" && (
           <section
@@ -2237,7 +2295,7 @@ export default function SmartPortfolio() {
             <MetricCard
               label="預估年領股息"
               value={money(portfolioSummary.totalAnnualDividends)}
-              detail={<>加權年化殖利率：{portfolioSummary.dividendYield.toFixed(2)}%</>}
+              detail={<>手動加權股息試算率：{portfolioSummary.dividendYield.toFixed(2)}%</>}
               icon={<Coins className="size-5" />}
               valueClass="text-amber-500"
               iconClass="border-amber-500/20 bg-amber-500/10 text-amber-500"
@@ -2410,17 +2468,17 @@ export default function SmartPortfolio() {
             <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-bold">實際投資績效</h2>
               <label className="flex items-center gap-2 text-sm">已實現／股息年度<select className="rounded border border-border bg-background p-2" value={performanceYear} onChange={event=>setPerformanceYear(event.target.value)}><option value="ALL">全部年度</option>{performanceYears.map(year=><option key={year} value={year}>{year}</option>)}</select></label>
             </div>
-            <p className="text-sm text-muted-foreground">依完整交易履歷計算，買入費稅納入成本、賣出費稅扣除收入，股息扣除已登記費稅。請到「交易 → 編輯」填入實際費稅並勾選已核對；未核對紀錄以估算標示。</p>
+            <p className="text-sm text-muted-foreground">依完整交易履歷計算，買入費稅納入成本、賣出費稅扣除收入，股息扣除已登記費稅。請先核對實際金額與費稅，再點交易列的「待核對」完成標記；金額有誤時可先編輯。未核對紀錄以估算標示。</p>
             {performance.length===0 ? <p className="text-sm">新增持股與交易後即可查看績效。</p> : <div className="overflow-x-auto"><Table className="min-w-[1050px] text-sm"><TableHeader><TableRow>
               {['標的／狀態','已實現淨損益','實收股息','未實現損益（目前）','累計總損益','累計投入報酬率','台幣總損益'].map(label=><TableHead key={label}>{label}</TableHead>)}
             </TableRow></TableHeader><TableBody>{performance.map(row=>{
               const native=(value:number)=>`${row.currency} ${value.toLocaleString(undefined,{maximumFractionDigits:2})}`;
               const period=performanceYear==='ALL'?row:row.annual[performanceYear]??{realized:0,dividends:0};
-              return <TableRow key={row.key}><TableCell><InstrumentLink instrument={row} onOpen={openInstrument} /><p className={row.error?'text-destructive':'text-muted-foreground'}>{row.error??(row.verified?'費稅已核對':'估算・費稅待核對')}</p></TableCell>
-                <TableCell>{row.error?'—':native(period.realized)}</TableCell><TableCell>{row.error?'—':native(period.dividends)}</TableCell>
-                <TableCell>{row.error?'—':native(row.unrealized)}</TableCell><TableCell>{row.error?'—':native(row.total)}</TableCell>
-                <TableCell>{row.error||row.returnRate===null?'—':`${row.returnRate.toFixed(2)}%`}</TableCell>
-                <TableCell>{row.error?'—':row.twdTotal===null?'缺交易日匯率':`TWD ${row.twdTotal.toLocaleString(undefined,{maximumFractionDigits:2})}`}</TableCell></TableRow>;
+              return <TableRow key={row.key}><TableCell><InstrumentLink instrument={row} onOpen={openInstrument} /><p className={row.error?'text-destructive':row.verified?'status-verified':'status-pending'}>{row.error??(row.verified?'費稅已核對':'估算・費稅待核對')}</p></TableCell>
+                <TableCell className={gainLossText(row.error ? null : period.realized)}>{row.error?'—':native(period.realized)}</TableCell><TableCell className={cashText(row.error ? null : period.dividends)}>{row.error?'—':native(period.dividends)}</TableCell>
+                <TableCell className={gainLossText(row.error ? null : row.unrealized)}>{row.error?'—':native(row.unrealized)}</TableCell><TableCell className={gainLossText(row.error ? null : row.total)}>{row.error?'—':native(row.total)}</TableCell>
+                <TableCell className={gainLossText(row.error ? null : row.returnRate)}>{row.error||row.returnRate===null?'—':`${row.returnRate.toFixed(2)}%`}</TableCell>
+                <TableCell className={row.error ? 'value-neutral' : row.twdTotal===null ? 'status-pending' : gainLossText(row.twdTotal)}>{row.error?'—':row.twdTotal===null?'缺交易日匯率':`TWD ${row.twdTotal.toLocaleString(undefined,{maximumFractionDigits:2})}`}</TableCell></TableRow>;
             })}</TableBody></Table></div>}
             <p className="text-sm text-muted-foreground">累計總損益＝已實現＋實收股息＋目前未實現；報酬率＝累計總損益÷歷次買入總支出，非年化或時間加權報酬率。年度選擇只篩選已實現與股息，其他欄位維持全期間。未實現採目前價格，行情新鮮度請參考上方標示。美股台幣績效使用各筆交易匯率與目前參考匯率；缺匯率不以現行匯率補算。持股頁均價仍為不含費稅的成交均價。</p>
           </Panel>}
@@ -2756,6 +2814,7 @@ export default function SmartPortfolio() {
                     <TableHead className="text-right">成交價</TableHead>
                     <TableHead className="text-right">費用 / 稅額</TableHead>
                     <TableHead className="text-right">交易總額</TableHead>
+                    <TableHead>費稅狀態</TableHead>
                     <TableHead>備註</TableHead>
                     <TableHead>操作</TableHead>
                   </TableRow>
@@ -2768,17 +2827,11 @@ export default function SmartPortfolio() {
                         : transaction.type === "SELL"
                           ? "賣出"
                           : "現金股利";
-                    const typeClass =
-                      transaction.type === "BUY"
-                        ? "border-indigo-500/25 bg-indigo-500/10 text-indigo-400"
-                        : transaction.type === "SELL"
-                          ? "border-rose-500/25 bg-rose-500/10 text-rose-500"
-                          : "border-amber-500/25 bg-amber-500/10 text-amber-500";
                     return (
-                      <TableRow key={transaction.id}>
+                      <TableRow key={transaction.id} className="instrument-transaction-row" data-type={transaction.type}>
                         <TableCell className="px-4 font-mono">{transaction.date}</TableCell>
                         <TableCell>
-                          <span className={`rounded-md border px-2 py-1 text-xs font-bold ${typeClass}`}>
+                          <span className="transaction-badge" data-type={transaction.type}>
                             {typeLabel}
                           </span>
                         </TableCell>
@@ -2799,9 +2852,10 @@ export default function SmartPortfolio() {
                             transaction.category,
                           )}
                         </TableCell>
-                        <TableCell className="text-right font-mono font-bold">
+                        <TableCell className={`text-right font-mono font-bold ${cashText(transactionCash(transaction))}`}>
                           {money(transactionValueTwd(transaction))}
                         </TableCell>
+                        <TableCell><CostVerificationButton row={transaction} disabled={!storageReady} onVerify={handleVerifyCosts} /></TableCell>
                         <TableCell className="max-w-56 whitespace-normal text-muted-foreground">
                           {transaction.note || "—"}
                         </TableCell>
@@ -2828,8 +2882,9 @@ export default function SmartPortfolio() {
             aria-labelledby="tab-dividends"
             className="space-y-6"
           >
-            <DividendIncome holdings={holdings} transactions={transactions} today={localDateString()} onOpenInstrument={openInstrument} onEdit={row => setHistoryEdit({original:row,draft:{...row},deleting:false})} onAdd={() => { resetForm(); setFormType("DIVIDEND"); setIsAddModalOpen(true); }} />
-            <details className="rounded-2xl border border-border p-4"><summary className="cursor-pointer py-2 font-semibold">預估股息日曆與殖利率排行</summary>
+            <DividendIncome holdings={holdings} transactions={transactions} today={localDateString()} storageReady={storageReady} onVerify={handleVerifyCosts} onOpenInstrument={openInstrument} onEdit={row => setHistoryEdit({original:row,draft:{...row},deleting:false})} onAdd={() => { resetForm(); setFormType("DIVIDEND"); setIsAddModalOpen(true); }} />
+            <OfficialYieldPanel holdings={holdings} refreshing={yieldRefreshing} error={yieldError} consent={quoteConsent} onRefresh={handleYieldRefresh} onOpen={openInstrument} />
+            <details className="rounded-2xl border border-border p-4"><summary className="cursor-pointer py-2 font-semibold">預估股息日曆與手動試算率</summary>
             <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
               <Panel className="p-5 sm:p-6 lg:col-span-2">
                 <h2 className="flex items-center gap-2 text-base font-bold">
@@ -2837,7 +2892,7 @@ export default function SmartPortfolio() {
                   預估年度股息日曆
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  依各標的年化殖利率與配息月份平均分攤估算。
+                  依各標的手動股息試算率與配息月份平均分攤估算。
                 </p>
                 <div className="mt-6 flex h-60 items-end gap-1.5 border-b border-border px-1 pb-2 sm:gap-2">
                   {dividendByMonth.map((month) => {
@@ -2873,12 +2928,12 @@ export default function SmartPortfolio() {
                 <div>
                   <h2 className="flex items-center gap-2 text-base font-bold">
                     <Coins className="size-5 text-amber-500" />
-                    殖利率排行
+                    手動股息試算率排行
                   </h2>
                   <div className="mt-4 space-y-3">
                     {holdings.length === 0 ? (
                       <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                        建立持股後會顯示殖利率排行。
+                        建立持股後會顯示手動股息試算率。
                       </div>
                     ) : (
                       holdings
@@ -2893,7 +2948,7 @@ export default function SmartPortfolio() {
                             <div className="min-w-0">
                               <InstrumentLink instrument={item} onOpen={openInstrument} />
                               <p className="text-xs text-muted-foreground">
-                                {item.symbol} · 年化 {item.divRate}%
+                                {item.symbol} · 手動試算 {item.divRate}%
                               </p>
                             </div>
                             <span className="shrink-0 text-right font-mono text-xs font-bold text-amber-500">
@@ -2907,7 +2962,7 @@ export default function SmartPortfolio() {
                 </div>
                 <div className="mt-4 flex gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-500">
                   <Info className="mt-0.5 size-4 shrink-0" />
-                  <span>殖利率與配息均為估算，請以實際公告為準。</span>
+                  <span>此處為手動試算設定；官方殖利率請參考上方來源與日期。官方口徑可能包含股票股利，不直接代入現金股息試算。</span>
                 </div>
               </Panel>
             </div>
@@ -3120,10 +3175,10 @@ export default function SmartPortfolio() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <RefreshCw className="size-5 text-primary" />
-              啟用個股行情連動
+              啟用行情與官方殖利率查詢
             </DialogTitle>
             <DialogDescription>
-              為取得最新價格，網站需要向公開行情來源查詢你的標的代號。
+              為取得最新價格與官方殖利率，網站需要向公開來源查詢你的標的代號。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-sm">
@@ -3138,8 +3193,9 @@ export default function SmartPortfolio() {
               </p>
             </div>
             <p className="text-xs leading-5 text-muted-foreground">
-              台股代號會查詢臺灣證券交易所即時資訊服務；美股代號會查詢 Nasdaq
-              公開行情。你可隨時把個別標的改為「保留手動價格」。
+              台股查詢證交所與櫃買中心公開資料；美股查詢 Nasdaq。
+              「保留手動價格」只控制價格更新；官方殖利率另列顯示，不改寫手動股息試算率。
+              關閉自動更新後可手動查詢，撤銷代號查詢同意會停止這兩項連線。
             </p>
           </div>
           <DialogFooter>
@@ -3684,7 +3740,7 @@ export default function SmartPortfolio() {
                     />
                   </label>
                   <label className="space-y-1.5 text-sm font-semibold">
-                    <span>預估年殖利率（%）</span>
+                    <span>手動股息試算率（%）</span>
                     <Input
                       type="number"
                       min="0"
@@ -3768,7 +3824,7 @@ export default function SmartPortfolio() {
                             />
                           </label>
                           <label className="space-y-1.5 text-sm font-semibold">
-                            <span>預估年殖利率（%）</span>
+                            <span>手動股息試算率（%）</span>
                             <Input
                               type="number"
                               min="0"

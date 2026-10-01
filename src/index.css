@@ -174,7 +174,7 @@ select {
 }
 
 /* Transaction colors describe type and cash direction, independent of gain/loss colors. */
-.instrument-details {
+.portfolio-colors {
   --trade-buy: #4338ca;
   --trade-sell: #be123c;
   --trade-dividend: #92400e;
@@ -182,9 +182,9 @@ select {
   --cash-expense: #be123c;
 }
 
-[data-theme="dark"] .instrument-details,
-[data-theme="navy"] .instrument-details,
-[data-theme="emerald"] .instrument-details {
+[data-theme="dark"] .portfolio-colors,
+[data-theme="navy"] .portfolio-colors,
+[data-theme="emerald"] .portfolio-colors {
   --trade-buy: #a5b4fc;
   --trade-sell: #fda4af;
   --trade-dividend: #fcd34d;
@@ -192,13 +192,13 @@ select {
   --cash-expense: #fda4af;
 }
 
-.instrument-details [data-type="BUY"] { --transaction-color: var(--trade-buy); }
-.instrument-details [data-type="SELL"] { --transaction-color: var(--trade-sell); }
-.instrument-details [data-type="DIVIDEND"] { --transaction-color: var(--trade-dividend); }
-.instrument-details [data-status="verified"] { --transaction-color: var(--cash-income); }
-.instrument-details [data-status="pending"] { --transaction-color: var(--trade-dividend); }
+.portfolio-colors [data-type="BUY"] { --transaction-color: var(--trade-buy); }
+.portfolio-colors [data-type="SELL"] { --transaction-color: var(--trade-sell); }
+.portfolio-colors [data-type="DIVIDEND"] { --transaction-color: var(--trade-dividend); }
+.portfolio-colors [data-status="verified"] { --transaction-color: var(--cash-income); }
+.portfolio-colors [data-status="pending"] { --transaction-color: var(--trade-dividend); }
 
-.instrument-details .transaction-badge {
+.portfolio-colors .transaction-badge {
   display: inline-flex;
   align-items: center;
   border: 1px solid color-mix(in srgb, var(--transaction-color) 25%, transparent);
@@ -211,15 +211,15 @@ select {
   white-space: nowrap;
 }
 
-.instrument-details .instrument-transaction-row {
+.portfolio-colors .instrument-transaction-row {
   background: color-mix(in srgb, var(--transaction-color) 4%, var(--card));
 }
-.instrument-details .instrument-transaction-row:hover {
+.portfolio-colors .instrument-transaction-row:hover {
   background: color-mix(in srgb, var(--transaction-color) 8%, var(--card));
 }
-.instrument-details .transaction-cash[data-direction="income"] { color: var(--cash-income); }
-.instrument-details .transaction-cash[data-direction="expense"] { color: var(--cash-expense); }
-.instrument-details .transaction-cash[data-direction="neutral"] { color: var(--muted-foreground); }
+.portfolio-colors .transaction-cash[data-direction="income"] { color: var(--cash-income); }
+.portfolio-colors .transaction-cash[data-direction="expense"] { color: var(--cash-expense); }
+.portfolio-colors .transaction-cash[data-direction="neutral"] { color: var(--muted-foreground); }
 
 button:focus-visible,
 input:focus-visible,
@@ -238,3 +238,13 @@ select:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+.portfolio-colors { --gain-color: var(--cash-expense); --loss-color: var(--cash-income); }
+.portfolio-colors[data-market-style="US"] { --gain-color: var(--cash-income); --loss-color: var(--cash-expense); }
+.portfolio-colors .value-positive { color: var(--gain-color); }
+.portfolio-colors .value-negative { color: var(--loss-color); }
+.portfolio-colors .value-neutral { color: var(--muted-foreground); }
+.portfolio-colors .cash-income { color: var(--cash-income); }
+.portfolio-colors .cash-expense { color: var(--cash-expense); }
+.portfolio-colors .status-pending { color: var(--trade-dividend); }
+.portfolio-colors .status-verified { color: var(--cash-income); }

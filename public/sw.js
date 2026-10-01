@@ -1,4 +1,4 @@
-const CACHE_NAME = "smartportfolio-pwa-v1.10.1";
+const CACHE_NAME = "smartportfolio-pwa-v1.11.0";
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
   "/favicon.svg",

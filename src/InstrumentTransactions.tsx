@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { Holding, Transaction } from './types';
 import { instrumentTransactions, sameInstrument, transactionCash, type Instrument } from './instrument-history';
 import { Button } from '@/components/ui/button';
+import CostVerificationButton from './CostVerificationButton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
-export default function InstrumentTransactions({ instrument, holdings, transactions, storageReady, onBack, onEdit }: {
+export default function InstrumentTransactions({ instrument, holdings, transactions, storageReady, onBack, onEdit, onVerify }: {
   instrument: Instrument; holdings: Holding[]; transactions: Transaction[]; storageReady: boolean;
   onBack: () => void; onEdit: (row: Transaction, deleting: boolean) => void;
+  onVerify: (row: Transaction, verified: boolean) => void;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   const rows = useMemo(() => instrumentTransactions(transactions, instrument), [transactions, instrument]);
@@ -16,7 +18,7 @@ export default function InstrumentTransactions({ instrument, holdings, transacti
   const money = (value: number | undefined | null) => value == null || !Number.isFinite(value) ? '—' :
     `${currency} ${value.toLocaleString('zh-TW', { maximumFractionDigits: 4 })}`;
   useEffect(() => { heading.current?.focus({ preventScroll: true }); }, [instrument.category, instrument.symbol]);
-  return <section aria-labelledby="instrument-title" className="instrument-details space-y-4">
+  return <section aria-labelledby="instrument-title" className="portfolio-colors instrument-details space-y-4">
     <Button type="button" variant="outline" onClick={onBack}>返回原頁面</Button>
     <div className="rounded-2xl border border-border bg-card p-5 sm:p-6">
       <p className="mb-2 text-sm font-medium text-primary">標的交易明細 · {instrument.category}</p>
@@ -46,7 +48,7 @@ export default function InstrumentTransactions({ instrument, holdings, transacti
             <TableCell className="text-right tabular-nums">{money(row.fee ?? 0)}</TableCell>
             <TableCell className="text-right tabular-nums">{money(row.tax ?? 0)}</TableCell>
             <TableCell className="transaction-cash text-right font-semibold tabular-nums" data-direction={direction}>{cash !== null && cash > 0 ? '+' : ''}{money(cash)}<span className="block text-sm font-normal">{cash === null ? '金額待確認' : cash === 0 ? '收支平衡' : cash > 0 ? '收入' : '支出'}</span></TableCell>
-            <TableCell><span className="transaction-badge" data-status={row.costsVerified ? 'verified' : 'pending'}>{row.costsVerified ? '已核對' : '待核對'}</span></TableCell>
+            <TableCell><CostVerificationButton row={row} disabled={!storageReady} onVerify={onVerify} /></TableCell>
             <TableCell className="max-w-56 whitespace-normal">{row.note || '—'}</TableCell>
             <TableCell><div className="flex gap-2"><Button type="button" size="sm" variant="outline" disabled={!storageReady} onClick={() => onEdit(row, false)}>編輯</Button><Button type="button" size="sm" variant="outline" disabled={!storageReady} onClick={() => onEdit(row, true)}>刪除</Button></div></TableCell>
           </TableRow>;

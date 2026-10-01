@@ -1,3 +1,4 @@
+import { validateOfficialYield } from "./official-yields";
 import { LEGACY_DEMO_HOLDINGS, LEGACY_DEMO_TRANSACTIONS } from "./data";
 import type {
   Category,
@@ -102,6 +103,7 @@ function parseHolding(value: unknown, index: number): Holding {
     sector: optionalText(value.sector, "未分類") || "未分類",
     divRate: finiteNumber(value.divRate ?? 0, `第 ${index + 1} 筆殖利率`, 0),
     estDivMonth: optionalText(value.estDivMonth),
+    ...(validateOfficialYield(value.officialYield) ? {officialYield:validateOfficialYield(value.officialYield)} : {}),
     todayChange: finiteNumber(value.todayChange ?? 0, `第 ${index + 1} 筆今日變動`),
     quoteMode: oneOf(
       value.quoteMode,
