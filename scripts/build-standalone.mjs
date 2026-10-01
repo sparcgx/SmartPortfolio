@@ -41,4 +41,4 @@ html = html
   .replace(/\s*<link rel="apple-touch-icon"[^>]*>/, "")
   .replace(/\s*<link rel="manifest"[^>]*>/, "");
 
-await writeFile(path.join(projectRoot, "SmartPortfolio_v1.9.0.html"), html, "utf8");
+await writeFile(path.join(projectRoot, "SmartPortfolio_v1.10.0.html"), html, "utf8");

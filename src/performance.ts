@@ -45,7 +45,7 @@ export function investmentPerformance(holdings: Holding[], transactions: Transac
     const unrealized=value-cost;
     const total=realized+dividends+unrealized;
     const verified=rows.length>0 && rows.every(r=>r.costsVerified===true);
-    return {key,name:identity.name,symbol:identity.symbol,currency:usd?'USD':'TWD',error,verified,fxKnown,
+    return {key,name:identity.name,symbol:identity.symbol,category:identity.category,currency:usd?'USD':'TWD',error,verified,fxKnown,
       realized,dividends,fees,cost,invested,unrealized,total,returnRate:invested>0?total/invested*100:null,annual,
       twdTotal:fxKnown && Number.isFinite(usdRate) && usdRate>0 ? twdRealized+twdDividends+value*(usd?usdRate:1)-twdCost:null};
   });

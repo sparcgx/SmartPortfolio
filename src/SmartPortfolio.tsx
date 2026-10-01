@@ -42,6 +42,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import DividendIncome from "./DividendIncome";
+import InstrumentLink from "./InstrumentLink";
+import InstrumentTransactions from "./InstrumentTransactions";
+import { useInstrumentPage } from "./use-instrument-page";
 import { investmentPerformance } from "./performance";
 import { RESTORE_RECOVERY_KEY, savePortfolio, restoreWithSnapshot } from "./storage-safety";
 
@@ -161,7 +164,7 @@ declare global {
   }
 }
 
-const APP_VERSION = "1.9.0";
+const APP_VERSION = "1.10.0";
 const HISTORY_RECOVERY_KEY = "smartportfolio:recovery:before-history-change:v1";
 const STORAGE_KEY = "smartportfolio:v1";
 const BACKUP_MARKER_KEY = "smartportfolio:backup-marker:v1";
@@ -309,6 +312,7 @@ export default function SmartPortfolio() {
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>("TWD");
   const [marketStyle, setMarketStyle] = useState<MarketStyle>("TW");
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+  const { instrument, openInstrument, clearInstrument, backFromInstrument } = useInstrumentPage();
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [usdRate, setUsdRate] = useState(FALLBACK_USD_RATE);
@@ -1656,6 +1660,7 @@ export default function SmartPortfolio() {
     setHoldingSearch("");
     setCategoryFilter("ALL");
     setActiveTab("dashboard");
+    clearInstrument();
     toast.success(
       `還原完成：${restored.holdings.length} 筆持股、${restored.transactions.length} 筆交易`,
     );
@@ -1798,6 +1803,7 @@ export default function SmartPortfolio() {
   );
 
   const handlePrimaryNavChange = (tabId: TabId) => {
+    clearInstrument();
     setActiveTab(tabId);
     window.requestAnimationFrame(() => {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2068,6 +2074,8 @@ export default function SmartPortfolio() {
         )}
 
         <main className="mx-auto w-full max-w-7xl space-y-6 px-3 pt-6 pb-24 sm:px-6 sm:pb-6 lg:px-8">
+          {instrument && <InstrumentTransactions instrument={instrument} holdings={holdings} transactions={transactions} storageReady={storageReady} onBack={backFromInstrument} onEdit={(row, deleting) => setHistoryEdit({original: row, draft: {...row}, deleting})} />}
+          <div hidden={Boolean(instrument)} className="space-y-6">
           {activeTab === "dashboard" && (
           <section
             id="panel-dashboard"
@@ -2376,15 +2384,12 @@ export default function SmartPortfolio() {
                     return (
                       <div key={item.id} className="rounded-xl border border-border bg-muted/45 p-4">
                         <div className="flex items-center justify-between gap-3">
-                          <span className="rounded-md border border-primary/20 bg-primary/10 px-2 py-1 font-mono text-xs font-bold text-primary">
-                            {item.symbol}
-                          </span>
+                          <InstrumentLink instrument={item} onOpen={openInstrument} />
                           <span className={gainLossText(roi)}>
                             {roi >= 0 ? "+" : ""}
                             {roi.toFixed(2)}%
                           </span>
                         </div>
-                        <p className="mt-3 truncate text-sm font-bold">{item.name}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           權重 {weight.toFixed(1)}% · {item.shares.toLocaleString()} 單位
                         </p>
@@ -2411,7 +2416,7 @@ export default function SmartPortfolio() {
             </TableRow></TableHeader><TableBody>{performance.map(row=>{
               const native=(value:number)=>`${row.currency} ${value.toLocaleString(undefined,{maximumFractionDigits:2})}`;
               const period=performanceYear==='ALL'?row:row.annual[performanceYear]??{realized:0,dividends:0};
-              return <TableRow key={row.key}><TableCell><p className="font-bold">{row.name}（{row.symbol}）</p><p className={row.error?'text-destructive':'text-muted-foreground'}>{row.error??(row.verified?'費稅已核對':'估算・費稅待核對')}</p></TableCell>
+              return <TableRow key={row.key}><TableCell><InstrumentLink instrument={row} onOpen={openInstrument} /><p className={row.error?'text-destructive':'text-muted-foreground'}>{row.error??(row.verified?'費稅已核對':'估算・費稅待核對')}</p></TableCell>
                 <TableCell>{row.error?'—':native(period.realized)}</TableCell><TableCell>{row.error?'—':native(period.dividends)}</TableCell>
                 <TableCell>{row.error?'—':native(row.unrealized)}</TableCell><TableCell>{row.error?'—':native(row.total)}</TableCell>
                 <TableCell>{row.error||row.returnRate===null?'—':`${row.returnRate.toFixed(2)}%`}</TableCell>
@@ -2520,8 +2525,7 @@ export default function SmartPortfolio() {
                         return (
                           <TableRow key={item.id}>
                             <TableCell className="px-4">
-                              <p className="font-bold">{item.name}</p>
-                              <p className="font-mono text-xs text-primary">{item.symbol}</p>
+                              <InstrumentLink instrument={item} onOpen={openInstrument} />
                             </TableCell>
                             <TableCell>
                               <span className="rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
@@ -2628,8 +2632,7 @@ export default function SmartPortfolio() {
                             <span className="rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
                               {item.category} · {item.sector}
                             </span>
-                            <h3 className="mt-3 truncate font-bold">{item.name}</h3>
-                            <p className="font-mono text-sm text-primary">{item.symbol}</p>
+                            <InstrumentLink instrument={item} onOpen={openInstrument} className="mt-3" />
                           </div>
                           <span className={`rounded-lg border px-2 py-1 text-xs ${gainLossBadge(roi)}`}>
                             {roi >= 0 ? "+" : ""}
@@ -2780,8 +2783,7 @@ export default function SmartPortfolio() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <p className="font-bold">{transaction.name}</p>
-                          <p className="font-mono text-xs text-primary">{transaction.symbol}</p>
+                          <InstrumentLink instrument={transaction} onOpen={openInstrument} />
                         </TableCell>
                         <TableCell className="text-right font-mono">
                           {transaction.shares?.toLocaleString() ?? "—"}
@@ -2826,7 +2828,7 @@ export default function SmartPortfolio() {
             aria-labelledby="tab-dividends"
             className="space-y-6"
           >
-            <DividendIncome holdings={holdings} transactions={transactions} today={localDateString()} onEdit={row => setHistoryEdit({original:row,draft:{...row},deleting:false})} onAdd={() => { resetForm(); setFormType("DIVIDEND"); setIsAddModalOpen(true); }} />
+            <DividendIncome holdings={holdings} transactions={transactions} today={localDateString()} onOpenInstrument={openInstrument} onEdit={row => setHistoryEdit({original:row,draft:{...row},deleting:false})} onAdd={() => { resetForm(); setFormType("DIVIDEND"); setIsAddModalOpen(true); }} />
             <details className="rounded-2xl border border-border p-4"><summary className="cursor-pointer py-2 font-semibold">預估股息日曆與殖利率排行</summary>
             <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
               <Panel className="p-5 sm:p-6 lg:col-span-2">
@@ -2889,7 +2891,7 @@ export default function SmartPortfolio() {
                             className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/45 p-3"
                           >
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-bold">{item.name}</p>
+                              <InstrumentLink instrument={item} onOpen={openInstrument} />
                               <p className="text-xs text-muted-foreground">
                                 {item.symbol} · 年化 {item.divRate}%
                               </p>
@@ -3100,13 +3102,14 @@ export default function SmartPortfolio() {
             </Panel>
           </section>
           )}
+          </div>
         </main>
       </div>
 
       <Button
         type="button"
         size="lg"
-        className="fixed right-4 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-30 h-12 rounded-full px-4 shadow-xl shadow-primary/25 sm:hidden"
+        className={`${instrument ? "hidden" : ""} fixed right-4 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-30 h-12 rounded-full px-4 shadow-xl shadow-primary/25 sm:hidden`}
         onClick={() => handleOpenAddModal()}
       >
         <Plus /> 交易

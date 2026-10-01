@@ -35,7 +35,7 @@ export function dividendIncome(holdings: Holding[], transactions: Transaction[],
     if(months.length && Number.isFinite(amount) && amount>=0) for(const m of months) forecast[m-1]+=amount/months.length;
   }
   const monthly = Array.from({length:12},(_,i)=>({month:i+1,...sum(periodRows(year,i+1)),previous:sum(periodRows(year-1,i+1)),forecast:year===currentYear?forecast[i]:null}));
-  const grouped = new Map<string,{key:string;name:string;symbol:string;category:string;rows:Transaction[]}>();
+  const grouped = new Map<string,{key:string;name:string;symbol:string;category:Transaction['category'];rows:Transaction[]}>();
   for(const r of rows){const key=`${r.category}:${r.symbol.trim().toUpperCase()}`;const entry=grouped.get(key)??{key,name:r.name,symbol:r.symbol,category:r.category,rows:[]};entry.rows.push(r);grouped.set(key,entry);}
   const ranking=[...grouped.values()].map(r=>({...r,...sum(r.rows)})).sort((a,b)=>b.net-a.net);
   return {rows,total,previous,monthly,ranking,invalidCount:invalid.length,forecast:year===currentYear?(month?forecast[month-1]:forecast.reduce((a,b)=>a+b,0)):null,
