@@ -173,6 +173,54 @@ select {
   font: inherit;
 }
 
+/* Transaction colors describe type and cash direction, independent of gain/loss colors. */
+.instrument-details {
+  --trade-buy: #4338ca;
+  --trade-sell: #be123c;
+  --trade-dividend: #92400e;
+  --cash-income: #065f46;
+  --cash-expense: #be123c;
+}
+
+[data-theme="dark"] .instrument-details,
+[data-theme="navy"] .instrument-details,
+[data-theme="emerald"] .instrument-details {
+  --trade-buy: #a5b4fc;
+  --trade-sell: #fda4af;
+  --trade-dividend: #fcd34d;
+  --cash-income: #6ee7b7;
+  --cash-expense: #fda4af;
+}
+
+.instrument-details [data-type="BUY"] { --transaction-color: var(--trade-buy); }
+.instrument-details [data-type="SELL"] { --transaction-color: var(--trade-sell); }
+.instrument-details [data-type="DIVIDEND"] { --transaction-color: var(--trade-dividend); }
+.instrument-details [data-status="verified"] { --transaction-color: var(--cash-income); }
+.instrument-details [data-status="pending"] { --transaction-color: var(--trade-dividend); }
+
+.instrument-details .transaction-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--transaction-color) 25%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.625rem;
+  background: color-mix(in srgb, var(--transaction-color) 10%, transparent);
+  color: var(--transaction-color);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.instrument-details .instrument-transaction-row {
+  background: color-mix(in srgb, var(--transaction-color) 4%, var(--card));
+}
+.instrument-details .instrument-transaction-row:hover {
+  background: color-mix(in srgb, var(--transaction-color) 8%, var(--card));
+}
+.instrument-details .transaction-cash[data-direction="income"] { color: var(--cash-income); }
+.instrument-details .transaction-cash[data-direction="expense"] { color: var(--cash-expense); }
+.instrument-details .transaction-cash[data-direction="neutral"] { color: var(--muted-foreground); }
+
 button:focus-visible,
 input:focus-visible,
 select:focus-visible {

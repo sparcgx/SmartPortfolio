@@ -164,7 +164,7 @@ declare global {
   }
 }
 
-const APP_VERSION = "1.10.0";
+const APP_VERSION = "1.10.1";
 const HISTORY_RECOVERY_KEY = "smartportfolio:recovery:before-history-change:v1";
 const STORAGE_KEY = "smartportfolio:v1";
 const BACKUP_MARKER_KEY = "smartportfolio:backup-marker:v1";

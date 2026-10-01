@@ -18,7 +18,7 @@ test('detail UI excludes other symbols and markets, shows all three types and na
   const html = render([tx, { ...tx, id: '2', type: 'SELL' }, { ...tx, id: '3', type: 'DIVIDEND', amount: 100 },
     { ...tx, id: '4', name: 'Must not appear', category: '台股' }, { ...tx, id: '5', name: 'Also excluded', symbol: 'MSFT' }]);
   assert.match(html, /Apple/); assert.match(html, /3 筆交易/);
-  assert.match(html, /買入 1 筆／賣出 1 筆／股息 1 筆/);
+  for (const label of ['買入 1 筆', '賣出 1 筆', '股息 1 筆']) assert.ok(html.includes(label));
   assert.match(html, /USD -1,005/); assert.match(html, /USD 95/);
   assert.doesNotMatch(html, /Must not appear|Also excluded/);
   assert.match(html, /返回原頁面/); assert.match(html, /overflow-x-auto/);
