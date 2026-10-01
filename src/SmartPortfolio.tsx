@@ -665,7 +665,7 @@ export default function SmartPortfolio() {
         holding.quoteMode === "AUTO" && holding.category !== "公募基金",
     ).length;
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 25_000);
+    const timeout = window.setTimeout(() => controller.abort(), 35_000);
 
     try {
       const snapshot = await fetchMarketSnapshot(

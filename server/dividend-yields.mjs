@@ -46,9 +46,9 @@ export function parseNasdaqYield(payload, symbol, checkedAt) {
 export async function fetchOfficialYields(instruments, checkedAt, fetcher) {
   const unique = [...new Map(instruments.map(i => [`${i.category}:${i.symbol.trim().toUpperCase()}`, {category:i.category,symbol:i.symbol.trim().toUpperCase()}])).values()];
   const tw = unique.some(i => i.category === '台股' && !i.symbol.startsWith('00'));
-  const datasets = await Promise.allSettled(tw ? [
-    fetcher('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_d'),
-    fetcher('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis'),
+  const datasetsPromise = Promise.allSettled(tw ? [
+    fetcher('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_d', {'user-agent':'Mozilla/5.0 (compatible; SmartPortfolio/1.11)'}),
+    fetcher('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis', {'user-agent':'Mozilla/5.0 (compatible; SmartPortfolio/1.11)', referer:'https://www.tpex.org.tw/'}),
   ] : []);
   const result = [];
   for (let start = 0; start < unique.length; start += 12) {
@@ -60,6 +60,7 @@ export async function fetchOfficialYields(instruments, checkedAt, fetcher) {
           message:'此介接未提供台股 ETF 官方年化殖利率；每單位配息不直接當作年化殖利率。請查看公告，手動試算率保留。' };
         if (i.category === '公募基金') return { ...i, ...fallback, message:'基金配息口徑依發行公司；目前保留手動試算率' };
         if (i.category === '台股') {
+          const datasets = await datasetsPromise;
           for (let index = 0; index < datasets.length; index++) {
             if (datasets[index].status !== 'fulfilled') continue;
             const parsed = parseTaiwanYield(datasets[index].value, i.symbol, index ? 'TPEx' : 'TWSE', checkedAt);

@@ -95,9 +95,9 @@ function firstPositive(...values) {
   return null;
 }
 
-async function fetchJson(url, headers = {}) {
+async function fetchJson(url, headers = {}, timeoutMs = 9000) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 9000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
       headers: { accept: "application/json", ...headers },
@@ -339,7 +339,8 @@ async function handleMarketGateway(request) {
   const key = (isYield ? "yields:" : "quotes:") + JSON.stringify(input.instruments.slice(0, 80).map(i => [i.category, i.symbol.trim().toUpperCase()]).sort());
   const cached = marketCache.get(key);
   if (cached && now - cached.at < (isYield ? 3_600_000 : 60_000)) return wrap(jsonResponse(cached.data));
-  const response = isYield ? jsonResponse(await fetchOfficialYields(input.instruments, new Date().toISOString(), fetchJson)) : await handleMarketData(new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body }));
+  const response = isYield ? jsonResponse(await fetchOfficialYields(input.instruments, new Date().toISOString(),
+    (url, headers) => fetchJson(url, headers, url.includes("nasdaq.com") ? 9000 : 20000))) : await handleMarketData(new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body }));
   if (response.ok) {
     const data = await response.clone().json();
     // Never cache failures or partial snapshots; let recovery retry upstream.
