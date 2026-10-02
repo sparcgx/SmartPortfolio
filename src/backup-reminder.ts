@@ -1,4 +1,4 @@
-import type { Holding, Transaction } from "./types";
+import type { CashflowTools, Holding, Transaction } from "./types";
 
 export interface BackupMarker {
   exportedAt: string;
@@ -8,11 +8,15 @@ export interface BackupMarker {
 
 // Market quotes change automatically. Only user-maintained records belong to
 // the backup reminder's change detector.
-export function recordSignature(holdings: Holding[], transactions: Transaction[]) {
+export function recordSignature(holdings: Holding[], transactions: Transaction[], cashflow?: CashflowTools) {
   const records = JSON.stringify({
     holdings: holdings.map(({ id, symbol, name, category, shares, avgPrice, sector, divRate, estDivMonth, quoteMode }) =>
       [id, symbol, name, category, shares, avgPrice, sector, divRate, estDivMonth, quoteMode]),
     transactions,
+    ...(cashflow && (cashflow.monthlyTargets.TWD || cashflow.monthlyTargets.USD || cashflow.plans.length || cashflow.alerts.length) ? {
+      cashflow: {monthlyTargets:cashflow.monthlyTargets,plans:cashflow.plans,
+        alerts:cashflow.alerts.map(({id,category,symbol,basis,customPrice,tolerancePct,enabled})=>({id,category,symbol,basis,customPrice,tolerancePct,enabled}))},
+    } : {}),
   });
   let hash = BigInt("0xcbf29ce484222325");
   for (let index = 0; index < records.length; index++) {
@@ -41,9 +45,10 @@ export function backupReminder(
   holdings: Holding[],
   transactions: Transaction[],
   now = Date.now(),
+  cashflow?: CashflowTools,
 ) {
-  const hasRecords = holdings.length > 0 || transactions.length > 0;
-  const changed = Boolean(marker && marker.signature !== recordSignature(holdings, transactions));
+  const hasRecords = holdings.length > 0 || transactions.length > 0 || Boolean(cashflow && (cashflow.monthlyTargets.TWD || cashflow.monthlyTargets.USD || cashflow.plans.length || cashflow.alerts.length));
+  const changed = Boolean(marker && marker.signature !== recordSignature(holdings, transactions, cashflow));
   const knownIds = new Set(marker?.transactionIds ?? []);
   const newTransactions = marker
     ? transactions.filter(({ id }) => !knownIds.has(id)).length

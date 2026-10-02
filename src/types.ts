@@ -64,6 +64,7 @@ export interface StoredPortfolio {
   schemaVersion: 3;
   holdings: Holding[];
   transactions: Transaction[];
+  cashflow?: CashflowTools;
   marketData: {
     usdTwdRate: number;
     usdTwdUpdatedAt: string | null;
@@ -82,6 +83,19 @@ export interface StoredPortfolio {
     annualRate: number;
     years: number;
   };
+}
+
+export interface IncomePlan { category: Category; symbol: string; monthlyAmount: number; }
+export interface PriceAlert {
+  id: string; category: Category; symbol: string;
+  basis: 'COST' | 'LAST_BUY' | 'CUSTOM'; customPrice: number;
+  tolerancePct: number; enabled: boolean; inside: boolean;
+  lastObservation: string | null; lastTriggeredAt: string | null;
+}
+export interface CashflowTools {
+  monthlyTargets: {TWD:number; USD:number};
+  plans: IncomePlan[];
+  alerts: PriceAlert[];
 }
 
 export interface PortfolioBackup {

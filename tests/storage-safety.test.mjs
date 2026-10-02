@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { savePortfolio, restoreWithSnapshot, RESTORE_RECOVERY_KEY, verifyTransactionCosts } from '../src/storage-safety.ts';
 const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
+  if (['./cashflow-tools','./dividend-income','./freshness'].includes(specifier) && context.parentURL?.includes('/src/')) return nextResolve(`${specifier}.ts`, context);
   if (specifier === './official-yields' && context.parentURL?.endsWith('/src/backup.ts')) return nextResolve('./official-yields.ts', context);
   if (specifier === './data' && context.parentURL?.endsWith('/src/backup.ts')) return nextResolve('./data.ts', context);
   return nextResolve(specifier, context);

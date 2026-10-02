@@ -41,6 +41,9 @@ import {
   WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
+import CashflowGoals from "./CashflowGoals";
+import PriceAlerts from "./PriceAlerts";
+import { advancePriceAlerts, defaultCashflowTools, parseCashflowTools } from "./cashflow-tools";
 import OfficialYieldPanel from "./OfficialYieldPanel";
 import { fetchDividendYields, mergeOfficialYield } from "./official-yields";
 import DividendIncome from "./DividendIncome";
@@ -129,6 +132,7 @@ import {
 } from "./portfolio";
 import type {
   Category,
+  CashflowTools,
   DisplayCurrency,
   Holding,
   MarketStyle,
@@ -169,7 +173,7 @@ declare global {
   }
 }
 
-const APP_VERSION = "1.11.0";
+const APP_VERSION = "1.12.0";
 const HISTORY_RECOVERY_KEY = "smartportfolio:recovery:before-history-change:v1";
 const STORAGE_KEY = "smartportfolio:v1";
 const BACKUP_MARKER_KEY = "smartportfolio:backup-marker:v1";
@@ -204,7 +208,7 @@ const NAV_TABS: Array<{
   { id: "holdings", label: "持股與基金明細", compactLabel: "持股", icon: Layers3 },
   { id: "transactions", label: "交易紀錄", compactLabel: "交易", icon: CalendarDays },
   { id: "dividends", label: "實收股息與分析", compactLabel: "股息", icon: BarChart3 },
-  { id: "dca", label: "定期定額試算", compactLabel: "試算", icon: Calculator },
+  { id: "dca", label: "現金流目標與試算", compactLabel: "目標", icon: Calculator },
 ];
 
 const CATEGORIES: Category[] = ["台股", "美股", "公募基金"];
@@ -320,6 +324,7 @@ export default function SmartPortfolio() {
   const { instrument, openInstrument, clearInstrument, backFromInstrument } = useInstrumentPage();
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [cashflow, setCashflow] = useState<CashflowTools>(defaultCashflowTools);
   const [usdRate, setUsdRate] = useState(FALLBACK_USD_RATE);
   const [usdRateUpdatedAt, setUsdRateUpdatedAt] = useState<string | null>(null);
   const [lastMarketSyncAt, setLastMarketSyncAt] = useState<string | null>(null);
@@ -423,6 +428,7 @@ export default function SmartPortfolio() {
       schemaVersion: 3,
       holdings,
       transactions,
+      cashflow,
       marketData: {
         usdTwdRate: usdRate,
         usdTwdUpdatedAt: usdRateUpdatedAt,
@@ -451,6 +457,7 @@ export default function SmartPortfolio() {
       marketStyle,
       quoteConsent,
       transactions,
+      cashflow,
       usdRate,
       usdRateUpdatedAt,
     ],
@@ -602,6 +609,7 @@ export default function SmartPortfolio() {
 
         setHoldings(nextData.holdings);
         setTransactions(nextData.transactions);
+        setCashflow(nextData.cashflow ?? defaultCashflowTools());
         setUsdRate(nextData.marketData.usdTwdRate);
         setUsdRateUpdatedAt(nextData.marketData.usdTwdUpdatedAt);
         setLastMarketSyncAt(nextData.marketData.lastSyncAt);
@@ -641,6 +649,34 @@ export default function SmartPortfolio() {
       setStorageError("變更尚未儲存到此裝置。請先匯出備份，避免關閉頁面後遺失；釋出空間或允許儲存後再重試。");
     }
   }, [storageReady, storedPortfolio, saveRetry]);
+
+  const handleCashflowSave = (next: CashflowTools) => {
+    if (!storageReady) { toast.error("資料尚未安全載入，未套用設定"); return false; }
+    try {
+      const checked = parseCashflowTools(next);
+      savePortfolio(localStorage, STORAGE_KEY, {...storedPortfolio,cashflow:checked});
+      setCashflow(checked); setStorageError(null);
+      toast.success("目標與提醒設定已儲存；持股與交易未變更");
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error && error.message.includes("格式") ? error.message : "儲存失敗，設定未套用；請檢查儲存空間或匯出備份");
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    if (!storageReady || !isOnline || storageError) return;
+    const result = advancePriceAlerts(cashflow.alerts,holdings,transactions,freshnessNow);
+    if (!result.changed) return;
+    const next = {...cashflow,alerts:result.alerts};
+    try { savePortfolio(localStorage,STORAGE_KEY,{...storedPortfolio,cashflow:next}); }
+    catch { setStorageError("價格提醒狀態無法儲存，已暫停提示；請匯出備份並檢查儲存空間"); return; }
+    setCashflow(next);
+    for (const a of result.triggered) toast.info(`${a.symbol} 已進入 ±${a.tolerancePct}% 提醒範圍`,{
+      description:"依最近可用行情判斷，非保證即時價格；可至持股頁查看來源時間。",
+      action:{label:"查看標的",onClick:()=>openInstrument(a)},
+    });
+  }, [storageReady,isOnline,storageError,cashflow,holdings,transactions,freshnessNow,storedPortfolio,openInstrument]);
 
   useEffect(() => {
     if (!storageError) return;
@@ -922,8 +958,8 @@ export default function SmartPortfolio() {
     [transactions],
   );
   const backupStatus = useMemo(
-    () => backupReminder(backupMarker, holdings, transactions),
-    [backupMarker, holdings, transactions],
+    () => backupReminder(backupMarker, holdings, transactions, Date.now(), cashflow),
+    [backupMarker, holdings, transactions, cashflow],
   );
 
   const selectedFormHolding = useMemo(
@@ -1638,7 +1674,7 @@ export default function SmartPortfolio() {
       downloadJsonFile(backup, `SmartPortfolio_完整備份_${backupFileStamp()}.json`);
       const marker: BackupMarker = {
         exportedAt: backup.exportedAt,
-        signature: recordSignature(holdings, transactions),
+        signature: recordSignature(holdings, transactions, cashflow),
         transactionIds: transactions.map(({ id }) => id),
       };
       try {
@@ -1702,6 +1738,7 @@ export default function SmartPortfolio() {
     clearTransactionUndo();
     setHoldings(restored.holdings);
     setTransactions(restored.transactions);
+    setCashflow(restored.cashflow ?? defaultCashflowTools());
     setUsdRate(restored.marketData.usdTwdRate);
     setUsdRateUpdatedAt(restored.marketData.usdTwdUpdatedAt);
     setLastMarketSyncAt(restored.marketData.lastSyncAt);
@@ -2490,6 +2527,7 @@ export default function SmartPortfolio() {
             aria-labelledby="tab-holdings"
             className="space-y-4"
           >
+            <PriceAlerts holdings={holdings} transactions={transactions} settings={cashflow} disabled={!storageReady} now={freshnessNow} online={isOnline} onSave={handleCashflowSave} onOpen={openInstrument}/>
             <Panel className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="relative min-w-0 flex-1 lg:max-w-md">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -3022,7 +3060,9 @@ export default function SmartPortfolio() {
             id="panel-dca"
             role="region"
             aria-labelledby="tab-dca"
+            className="space-y-5"
           >
+            <CashflowGoals holdings={holdings} transactions={transactions} settings={cashflow} today={localDateString()} disabled={!storageReady} onSave={handleCashflowSave}/>
             <Panel className="p-5 sm:p-6">
               <h2 className="flex items-center gap-2 text-base font-bold">
                 <Calculator className="size-5 text-primary" />
@@ -3232,7 +3272,7 @@ export default function SmartPortfolio() {
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground">目前可備份資料</span>
               <span className="font-semibold">
-                {holdings.length} 筆持股 · {transactions.length} 筆交易
+                {holdings.length} 筆持股 · {transactions.length} 筆交易 · {cashflow.alerts.length} 項價格提醒（含目標與投入配置）
               </span>
             </div>
           </div>
@@ -3992,7 +4032,7 @@ export default function SmartPortfolio() {
                 「{pendingRestore?.fileName}」包含 {pendingRestore?.data.holdings.length ?? 0} 筆持股與 {pendingRestore?.data.transactions.length ?? 0} 筆交易。
               </span>
               <span className="block">
-                備份時間：{formatBackupDate(pendingRestore?.exportedAt ?? null)}。還原會覆蓋目前資料；系統會先保存還原前復原快照，保存失敗則停止。仍建議先匯出外部備份。
+                備份時間：{formatBackupDate(pendingRestore?.exportedAt ?? null)}。還原會覆蓋目前資料，包含現金流目標、投入配置與價格提醒；舊備份未含這些設定時會清空。系統會先保存還原前復原快照，保存失敗則停止。仍建議先匯出外部備份。
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>

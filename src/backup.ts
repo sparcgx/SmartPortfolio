@@ -1,4 +1,5 @@
 import { validateOfficialYield } from "./official-yields";
+import { parseCashflowTools } from "./cashflow-tools";
 import { LEGACY_DEMO_HOLDINGS, LEGACY_DEMO_TRANSACTIONS } from "./data";
 import type {
   Category,
@@ -181,6 +182,7 @@ export function parsePortfolioBackup(value: unknown): ParsedPortfolioBackup {
       schemaVersion: 3,
       holdings: source.holdings.map(parseHolding),
       transactions: source.transactions.map(parseTransaction),
+      cashflow: parseCashflowTools(source.cashflow),
       marketData: {
         usdTwdRate: clampedNumber(
           marketData.usdTwdRate,
